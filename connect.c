@@ -15,14 +15,14 @@
 #include <netinet/in.h>
 #include <sys/socket.h>
 
-#define MAXDATASIZE 512
+#define MAXDATASIZE 512 // max bytes in each call to recv() + size of malloc'd buffer
 #define NICKNAME "foobar"
 #define IDENT "foobar"
 #define REALNAME "foobar"
 #define JOIN "join #98755843"
 
-// recv() data into a buffer and process this
-int recv_buf(int *socket, char *buffer, int *ovrflag, char *temp, int temp_len);
+// recv() data into a buffer through a BSD socket and process this
+int recv_buf(int *socket, char *buffer, int *overflow, char *temp, int temp_len);
 int proc_buf(char *buffer, int *socket);
 int chk_overflow(char *buffer); 
 void proc_overflow(char *buffer, char *temp);
@@ -62,12 +62,12 @@ int main(int argc, char *argv[]){
     
     int sockfd;
     
-    if ((he=gethostbyname(argv[1])) == NULL){	// get host info.
+    if ((he=gethostbyname(argv[1])) == NULL){	// get host info
         herror("gethostbyname");				// return error on failure & quit
         exit(1);
     }
     
-    if ((sockfd = socket(PF_INET, SOCK_STREAM, 0)) == -1){ 	// create socket 'sockfd'.
+    if ((sockfd = socket(PF_INET, SOCK_STREAM, 0)) == -1){ 	// create socket 'sockfd'
         perror("socket");									// return error on failure & quit
         exit(1);
     }
@@ -96,14 +96,14 @@ int main(int argc, char *argv[]){
         exit(1);
     }
     
-    int ovrflag, i;
-    ovrflag = 0;							        // initially set ovrflag to 0 for first recv() on first run of loop
+    int overflow, i;
+    overflow = 0;							        // initially set overflow to 0 (false) for first recv() on first run of loop
     
-    while (recv_buf(&sockfd, buffer, &ovrflag, temp, strlen(temp)) != 0){
+    while (recv_buf(&sockfd, buffer, &overflow, temp, strlen(temp)) != 0){
 
-        ovrflag = chk_overflow(buffer);		        // check for overflow and set flag accordingly
+        overflow = chk_overflow(buffer);		        // check for overflow and set flag accordingly
     
-        if(ovrflag == 1){					        // if there is an overflow
+        if(overflow){					        // if there is an overflow
             for(i = 0; i <= strlen(temp); i++) {	// zero the temporary buffer ready for new data
                 temp[i]='\0';
             }
@@ -118,7 +118,7 @@ int main(int argc, char *argv[]){
     printf("Error in recv_buf()\n");	
 }
 
-int recv_buf(int *socket, char *buffer, int *ovrflag, char *temp, int temp_len){
+int recv_buf(int *socket, char *buffer, int *overflow, char *temp, int temp_len){
     
     /**
     * recv_buf()
@@ -128,10 +128,10 @@ int recv_buf(int *socket, char *buffer, int *ovrflag, char *temp, int temp_len){
     **/
     
     int numbytes;
-    if(*ovrflag == 0){										// if there is no overwrite
+    if(!*overflow){										// if there is no overflow
         numbytes = recv(*socket, buffer, MAXDATASIZE, 0);	// receive through socket into buffer
         if(numbytes == -1) {								// recv() error checking
-            perror("recv, ovrflag = 0");
+            perror("recv, overflow = 0");
             return 0;
         }
         if(numbytes == 0) {
@@ -141,7 +141,7 @@ int recv_buf(int *socket, char *buffer, int *ovrflag, char *temp, int temp_len){
         return 1;
 
     }
-    if(*ovrflag == 1){
+    else if(*overflow){
         
         //printf("***OVERWRITE FLAG = 1 - overflow=[%s]\n", temp);
         
@@ -155,7 +155,7 @@ int recv_buf(int *socket, char *buffer, int *ovrflag, char *temp, int temp_len){
         }
         numbytes = recv(*socket, buffer2, MAXDATASIZE - temp_len, 0);	// receive through socket into 2nd buffer
         if(numbytes == -1) {											// recv() error checking
-            perror("recv, ovrflag = 1");
+            perror("recv, overflow = 1");
             return 0;
         }
         strncpy(buffer, temp, temp_len);					// copy temp(overflow) into buffer
@@ -227,9 +227,8 @@ int chk_overflow(char *buffer){
     }
     if (*(last + 1) != '\0') {			// if last char after the CR-LF is not a string NUL terminator, it's overflowing
         return 1;						// return 1, there is an overflow
-    }  else { 
-        return 0; 						// else there is no overflow, send straight to proc_buffer()
     }
+    return 0; 						    // else there is no overflow, send straight to proc_buffer()
 }
     
 void proc_overflow(char *buffer, char *temp){
@@ -237,7 +236,7 @@ void proc_overflow(char *buffer, char *temp){
     /**
     * proc_overflow()
     * given a buffer with overflowing text (does not end with CR-LF), proc_overflow() strips off the overflow and puts it into temp
-    * the buffer can then be processed via proc_buffer, and recv_buf(ovrflag=1) can recv() on top of overflow
+    * the buffer can then be processed via proc_buffer, and recv_buf(overflow=1) can recv() on top of overflow
     **/
     
     char *last;
